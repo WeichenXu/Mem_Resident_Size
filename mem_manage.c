@@ -5,7 +5,7 @@
 // Date: 12/09/2015
 
 /*
- *  I use a test case which considers locality & transient
+ *  I use a test case which considers locality & transient, did not upload the file generating the test case
  *
  *  In PFF
  *	Generally, page fault number decreases when F(reference time) increases
@@ -15,14 +15,14 @@
  *             when F gets bigger, the degrowth of page fault slows down
  *             when F reaches some point, the page fault number is at minimum, MIN = the number of the pages this program occupies
  *	            
- *             page fault number decreases, the number of frames allocated increases
+ *             when page fault number decreases, the number of frames allocated increases
  *
  *  In VSWS
  *	Generally, page fault number decreases when M increase
  *			   page fault number decreases when L increase
  *             page fault number decreases when Q increase
  *
- *             page fault number decreases, the number of frames allocated increases
+ *             when page fault number decreases, the number of frames allocated increases
  *
  *  Considering the page fault times in total, PFF is better than VSWS
  *  Considering the frames allocated,  min_frame_allocated_frequency & max_frame_allocated, VSWS is better
@@ -37,7 +37,7 @@
 
 #define F 30
 #define M 90
-#define Q 50
+#define Q 20
 #define L 150
 
 #define MAX_FILE_NAME_LENGTH 10
@@ -220,7 +220,7 @@ int VSWS(Page *mem_pages, int *mem_pages_size, int page_addr, int cur_reference_
 		*most_recent_sampling_time = cur_reference_time;
 		*elapsed_page_faults = 0;
 	}
-	// if eplapsed_page_faults > Q and elapsed_reference_time > M
+	// if eplapsed_page_faults >= Q and elapsed_reference_time >= M
 	// suspend and scan
 	else if((*elapsed_page_faults) >= Q && elapsed_time >= M){
 		shrinkResidentSet(mem_pages, *mem_pages_size);
@@ -279,6 +279,7 @@ int main(){
 	int *mem_acc = NULL, pages_num, mem_acc_times, page_fault_times = 0;
 	Page *mem_pages = NULL;
 	pages_num = loadMemAccessFile(&mem_acc, &mem_acc_times);
+	// used to test the threshold
 	//for(int i=1; i<10; i++){
 	//	M = 90;
 	//	Q = 40;
