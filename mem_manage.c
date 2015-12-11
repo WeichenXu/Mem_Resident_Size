@@ -1,25 +1,61 @@
 // PFF & VSWS
 // Input: file of memory access simulation
 // Author: Weichen Xu
+// Email: wx431@nyu.edu
 // Date: 12/09/2015
+
+/*
+ *  I use a test case which considers locality & transient
+ *
+ *  In PFF
+ *	Generally, page fault number decreases when F(reference time) increases
+ *  Initially, when F is 1, the page fault number is at maximum, MAX = all mem reference number - continuous access at same address
+ *							because page fault can only be avoided when same memory page be accessed in adajcent order
+ *             when F is small, the degrowth of page fault is rapid
+ *             when F gets bigger, the degrowth of page fault slows down
+ *             when F reaches some point, the page fault number is at minimum, MIN = the number of the pages this program occupies
+ *	            
+ *             page fault number decreases, the number of frames allocated increases
+ *
+ *  In VSWS
+ *	Generally, page fault number decreases when M increase
+ *			   page fault number decreases when L increase
+ *             page fault number decreases when Q increase
+ *
+ *             page fault number decreases, the number of frames allocated increases
+ *
+ *  Considering the page fault times in total, PFF is better than VSWS
+ *  Considering the frames allocated,  min_frame_allocated_frequency & max_frame_allocated, VSWS is better
+ *  	       in other words, VSWS keeps much fewer frames in memory, especially between program transients.
+ *  Overall, I think it is a tradeoff because PFF avoid more page faults, which is faster, while VSWS allows more runnable programes
+ *             which might avoid CPU wasting
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-#define F 20
+
+#define F 30
+#define M 90
+#define Q 50
+#define L 150
+
 #define MAX_FILE_NAME_LENGTH 10
 #define MAX_MEM_LENGTH	10
 #define MAX_MEM_ACCESS_TIME	50000
+#define MIN_FRAME_NUMBER 30
 
 typedef struct{
 	int address;
-	int mode;
-	bool status;	// true: in residnet set
+	int use_bit;
+	bool in_memory;	// true: in residnet set
 }Page;
 
+int memAccess(Page *mem_pages, int *mem_acc, int mem_acc_times, int replace_mode);
 int loadMemAccessFile(int **mem, int *mem_acc_times);
-int PFF(Page *mem_pages, int *mem_pages_size, int page_addr, int cur_reference_time, int last_reference_time);
-
+void shrinkResidentSet(Page *mem_pages, int mem_pages_size);
+int PFF(Page *mem_pages, int *mem_pages_size, int page_addr, int cur_reference_time, int *last_reference_time);
+int VSWS(Page *mem_pages, int *mem_pages_size, int page_addr, int cur_reference_time, int *last_reference_time, int *elapsed_page_faults);
 
 //int pageReplaceMent(int *mem_acc, int mem_acc_times, int replace_mode);
 
@@ -68,69 +104,134 @@ int loadMemAccessFile(int **mem_acc, int *mem_acc_times){
 	return pages_num;
 }
 
+// shrink resident set size by discarding pages whose use-bit == 0
+// set use-bit = 0 with use-bit = 1 before
+// *mem_pages: all mem pages of the process, use in_memory to mark resident set instead of dynamic allocation
+// mem_pages_size: size of mem_pages
+void shrinkResidentSet(Page *mem_pages, int mem_pages_size){
+	for(int i=0; i<mem_pages_size; i++){
+		// if use-bit is 0, discard
+		if(mem_pages[i].use_bit == 0){ 
+			mem_pages[i].in_memory = false;
+		}
+		// otherwise, set from 1 to 0
+		else{
+			mem_pages[i].use_bit = 0;
+		}	
+	}
+}
+
+// count how many pages are in memory, in other words, the size of resident set
+int getResidentSetSize(Page *mem_pages, int mem_pages_size){
+	int count = 0;
+	for(int i=0; i<mem_pages_size; i++){
+		if(mem_pages[i].in_memory)	count++;
+	}
+	return count;
+}
 //  simulate the memory access by PFF resident algo
-//  restore the reference_time & page_fault_number in caller
+//  restore the page_fault_number in caller
 //  return 0: no page fault
 //  return 1: page fault
-/*
- *	Generally, page fault number decreases when F(reference time) increases
- *
- *  Initially, when F is 1, the page fault number is at maximum, MAX = all mem reference number - continuous access at same address
- *							because page fault can only be avoided when same memory page be accessed in adajcent order
- *             when F is small, the degrowth of page fault is rapid
- *             when F gets bigger, the degrowth of page fault slows down
- *             when F reaches some point, the page fault number is at minimum, MIN = the size of working set
- *                          in other words, the number of the pages this program occupies
-*/
-int PFF(Page *mem_pages, int *mem_pages_size, int page_addr, int cur_reference_time, int last_reference_time){
-	// the page index in working set
-	int working_set_index = -1;
+
+int PFF(Page *mem_pages, int *mem_pages_size, int page_addr, int cur_reference_time, int *most_recent_page_fault_time){
+	// the page index in memory set
+	int memory_set_index = -1;
 	// page fault time
 	int pff; 
 	// whether page in resident set
 	for(int i=0; i<*mem_pages_size; i++){
 		if(mem_pages[i].address == page_addr){ 
-			working_set_index = i;
-			if(mem_pages[i].status == true) {
-				mem_pages[i].mode = 1; // set use-bit to 1 when access
+			memory_set_index = i;
+			if(mem_pages[i].in_memory == true) {
+				mem_pages[i].use_bit = 1; // set use-bit to 1 when access
 				return 0;
 			}
 			else break;
 		}
 	}
 	// page fault happens
-	// if the page is not in the working set, add it
-	if(working_set_index<0){
+	// if the page is not in the memory set, add it
+	if(memory_set_index<0){
 		mem_pages[*mem_pages_size].address = page_addr;
-		mem_pages[*mem_pages_size].status = true;	// put in resident set
-		mem_pages[*mem_pages_size].mode = 1;	// set use-bit to 1
-		working_set_index = *mem_pages_size;	
+		mem_pages[*mem_pages_size].in_memory = true;	// put in resident set
+		mem_pages[*mem_pages_size].use_bit = 1;	// set use-bit to 1
+		memory_set_index = *mem_pages_size;	
 		(*mem_pages_size)++;
 	}
-	pff = cur_reference_time-last_reference_time;
+	// get the time between two page faults
+	pff = cur_reference_time-*most_recent_page_fault_time;
+	// set the most recent reference time to current
+	*most_recent_page_fault_time = cur_reference_time;
 	//printf("pff:%d\n",pff);
 	if(pff < F){
 		// add to the resident
 		// set the use-bit to 1
-		mem_pages[working_set_index].status = true;
-		mem_pages[working_set_index].mode = 1;
+		mem_pages[memory_set_index].in_memory = true;
+		mem_pages[memory_set_index].use_bit = 1;
 	}
 	else{
 		// shrink resident set size by cleaning pages whose use-bit == 0
 		// set use-bit = 0 to those pages with use-bit = 1 before
-		for(int i=0; i<*mem_pages_size; i++){
-			if(mem_pages[i].mode == 0){ 
-				mem_pages[i].status = false;
-			}
-			else{
-				mem_pages[i].mode = 0;
-			}	
-		}
+		shrinkResidentSet(mem_pages, *mem_pages_size);
 	}
 	return 1;
 }
-// Simulate the process of page fetch & replacement
-// *mem_pages: represent the page status in memory
+
+// simulate memory access by VSWS
+// *mem_page: current memory set, *mem_pages_size: current memory set size
+// page_addr: address for memory
+// return 1 if page fault occurs
+// return 0 otherwise
+
+int VSWS(Page *mem_pages, int *mem_pages_size, int page_addr, int cur_reference_time, int *most_recent_sampling_time, int *elapsed_page_faults){
+	// find the index of the page in memory set
+	int memory_set_index = -1, page_fault_occur = 1;
+	int elapsed_time = cur_reference_time - (*most_recent_sampling_time);
+	// whether page in resident set
+	for(int i=0; i<*mem_pages_size; i++){
+		if(mem_pages[i].address == page_addr){ 
+			memory_set_index = i;
+			if(mem_pages[i].in_memory == true) {
+				page_fault_occur = 0;
+				mem_pages[i].use_bit = 1; // set use-bit to 1 when access
+			}
+			break;
+		}
+	}
+
+	// if page_fault_occur
+	// add elapsed_page_faults by one
+	if(page_fault_occur != 0)	(*elapsed_page_faults)++;
+	// add this page to the memory set if it not found
+	if(memory_set_index<0){
+		mem_pages[*mem_pages_size].address = page_addr;
+		mem_pages[*mem_pages_size].in_memory = true;	// put in resident set
+		mem_pages[*mem_pages_size].use_bit = 1;	// set use-bit to 1
+		memory_set_index = *mem_pages_size;	
+		(*mem_pages_size)++;
+	}
+
+	// if elapsed time reaches L, suspend and scan
+	// discard all pages whose use-bit = 0
+	// set all remain pages use-bit = 1
+	if(elapsed_time >= L){
+		shrinkResidentSet(mem_pages, *mem_pages_size);
+		*most_recent_sampling_time = cur_reference_time;
+		*elapsed_page_faults = 0;
+	}
+	// if eplapsed_page_faults > Q and elapsed_reference_time > M
+	// suspend and scan
+	else if((*elapsed_page_faults) >= Q && elapsed_time >= M){
+		shrinkResidentSet(mem_pages, *mem_pages_size);
+		*most_recent_sampling_time = cur_reference_time;
+		*elapsed_page_faults = 0;
+	}
+	return page_fault_occur;
+}
+
+// Simulate the process of page fetch & resident set
+// *mem_pages: represent the current memory set of the program
 //             
 // *mem_acc: the sequence of mem access
 // mem_acc_times: the number of mem accesss
@@ -138,18 +239,39 @@ int PFF(Page *mem_pages, int *mem_pages_size, int page_addr, int cur_reference_t
 //               2: for VSWS replacement algo
 // return the (total) number of page faults
 int memAccess(Page *mem_pages, int *mem_acc, int mem_acc_times, int replace_mode){
-	// Initially, resident size = 0;
-	int mem_pages_size = 0, page_fault_times = 0, most_recent_page_fault_time = 0; 
+	int mem_pages_size = 0;
+	int page_fault_times = 0;
+	// for PFF
+	int most_recent_page_fault_time = 0; 
+	// for VSWS
+	int elapsed_page_faults = 0, most_recent_sampling_time = 0;
+	// resident set size statistic, allocated frames
+	int max_frame_allocated = 0, min_frame_count = 0, current_frame_allocated;
+	float min_frame_frequency = 0.0;
 	for(int i=0; i<mem_acc_times; i++){
 		// require the i th page according to replacement algo
 		if(replace_mode == 1)	{
 			// if page fault happpend, page_fault_times ++,  set most_recent_page_fault_time to current
-			if(PFF(mem_pages, &mem_pages_size, mem_acc[i], i+1, most_recent_page_fault_time)){
-				most_recent_page_fault_time = i+1;
+			if(PFF(mem_pages, &mem_pages_size, mem_acc[i], i+1, &most_recent_page_fault_time)){
 				page_fault_times++;
 			}
 		}
+		if(replace_mode == 2)	{
+			// if page fault happpend, page_fault_times ++
+			// if scan the resident set, set most_recent_sampling_time to current
+			if(VSWS(mem_pages, &mem_pages_size, mem_acc[i], i+1, &most_recent_sampling_time, &elapsed_page_faults)){
+				page_fault_times++;
+			}
+		}
+		// get the number of frames allocated
+		current_frame_allocated = getResidentSetSize(mem_pages, mem_pages_size);
+		if(current_frame_allocated < MIN_FRAME_NUMBER)	min_frame_count ++;
+		max_frame_allocated = max_frame_allocated>current_frame_allocated?max_frame_allocated:current_frame_allocated;
 	}
+	min_frame_frequency = (float)min_frame_count/(float)mem_acc_times;
+	printf("Min frame frequency: %f\n", min_frame_frequency);
+	printf("Max frame allocated: %d\n", max_frame_allocated);
+	printf("Page fault total: %d\n", page_fault_times);
 	return page_fault_times;
 }
 
@@ -157,10 +279,21 @@ int main(){
 	int *mem_acc = NULL, pages_num, mem_acc_times, page_fault_times = 0;
 	Page *mem_pages = NULL;
 	pages_num = loadMemAccessFile(&mem_acc, &mem_acc_times);
-	mem_pages = (Page *)malloc(sizeof(Page) * pages_num);
-	page_fault_times = memAccess(mem_pages, mem_acc, mem_acc_times, 1);
-	printf("Memory access times: %d\n", mem_acc_times);
-	printf("Page fault times: %d\n", page_fault_times);
+	//for(int i=1; i<10; i++){
+	//	M = 90;
+	//	Q = 40;
+	//	L = 150;
+		printf("Using PFF\n");
+		mem_pages = (Page *)malloc(sizeof(Page) * pages_num);
+		page_fault_times = memAccess(mem_pages, mem_acc, mem_acc_times, 1);
+		if(mem_pages) free(mem_pages);
+		printf("Using VSWS\n");
+		mem_pages = (Page *)malloc(sizeof(Page) * pages_num);
+		page_fault_times = memAccess(mem_pages, mem_acc, mem_acc_times, 2);
+		if(mem_pages) free(mem_pages);
+	//}
+	//printf("Memory access times: %d\n", mem_acc_times);
+	
 	if(mem_acc)	free(mem_acc);
-	if(mem_pages) free(mem_pages);
+	
 }
