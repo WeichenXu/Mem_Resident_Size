@@ -6,20 +6,24 @@
 
 #include <iostream>
 #include <std.h>
-#include <vector>
+#include <unordered_map>
 
 namespace Memory_System{
-    // enum class for 
+    // enum class for resident set management algorithm
+    enum class resident_set_manage_algo : int {
+        PFF,
+        VSWS
+    };
 
     class mem_analysis_sys{
     public:
-        // use Singleton design pattern
+        // return the reference to the mem_analysis_sys
         static mem_analysis_sys& getMemAnalysisSys();
 
         // getter and setter for the parameters
-        size_t getPageNum() const { returnn this->params_->page_num; }
-        size_t getMemAccTimes() const { return this->params_->mem_acc_times; }
-        size_t getPageFaultTimes() const { return this->params_->page_fault_times; }
+        size_t getPageNum() const { return this->page_num_; }
+        size_t getMemAccTimes() const { return this->mem_acc_times_; }
+        size_t getPageFaultTimes() const { return this->page_fault_times_; }
         size_t getResidentSize() const { return this->res_mem_size_; }
 
         //----------------Utility function----------------//
@@ -28,9 +32,9 @@ namespace Memory_System{
 
         //----------------Perform memory resident algorithm----------//
         // PFF algorithm
-        void PFF();
+        void PFF(int curReferenceTime, size_t accessAddress);
         // VSWS algorithm
-        void VSWS();
+        void VSWS(int curReferenceTime, size_t accessAddress);
 
     private:
         // constructor and destructor
@@ -41,22 +45,24 @@ namespace Memory_System{
         // use pimpl pattern
 
         parameters* params_(nullptr);
-        // nested class, parameters for mem_analysis_sys
-        struct parameters{
-            size_t page_num(0);
-            size_t mem_acc_times(0);
-            size_t page_fault_times(0);
-        }
-        
+        // parameters for mem_analysis_sys
+        size_t page_num_(0);
+        size_t mem_acc_times_(0);
+        size_t page_fault_times_(0);
+        // elapsed page fault times for VSWS
+        size_t elapsed_page_fault_times_(0);
+        int last_sampling_time_(0);
+        // reference time of last page fault for PFF
+        int last_page_fault_time_(0);
+
         // nested class, pages in memory
         struct page{
-            size_t address(0);
             bool in_memory(false);
             int use_bit(0);
         }
 
         // resident memory
-        std::vector<page> pages_;
+        std::unordered_map<page> pages_;
         size_t res_mem_size_(0);
     };
 }
